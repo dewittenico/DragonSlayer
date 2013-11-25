@@ -62,8 +62,48 @@ Tile.prototype.toString = function() {
     return out;
 }
 
-function extendPartialMapFromJson(basetile, jsonstring, maxlevel)
+/*
+    @param initial Should only be set to true for first tile on load
+*/
+function getPartialMapFromServer(basetile, level, initial)
 {
+    console.log("AJAX request to server with {tile_id:" + basetile.id + ", level:" + level + "}");
+
+    var xmlhttp;
+    if (window.XMLHttpRequest) {    // code for IE7+, Firefox, Chrome, Opera, Safari
+        xmlhttp = new XMLHttpRequest();
+    }
+    else {  // code for IE6, IE5
+        xmlhttp = new ActiveXObject("Microsoft.XMLHTTP");
+    }
+
+    // We need to be able to pass the basetile object to the handler so we need some more complex code
+    xmlhttp.onreadystatechange = function(){ if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+            ajax_ExtendPartialMapFromJson_Callback(xmlhttp, basetile, level, initial);
+        }
+    };
+
+    xmlhttp.open("GET", "map.php?tile_id=" + basetile.id + "&level=" + level, true);
+    xmlhttp.send();
+}
+
+function ajax_ExtendPartialMapFromJson_Callback(xmlhttp, basetile, level, initial)
+{
+    console.log("AJAX response: " + xmlhttp.responseText);
+    // Extend the basetile with the new information received from the server
+    extendPartialMapFromJson(basetile, xmlhttp.responseText, level, initial);
+}
+
+/*
+    @param basetile The tile to extend with the new map
+    @param jsonstring The json string received from the server
+    @param maxlevel Currently not used
+    @param initial Should only be set to true for first tile on load
+*/
+function extendPartialMapFromJson(basetile, jsonstring, maxlevel, initial)
+{
+    maxlevel = 1;   // NOT IMPLEMENTED YET
+
     var tiles_from_json = JSON.parse(jsonstring).tiles;
     var monsters_from_json = JSON.parse(jsonstring).monsters;
 
@@ -74,14 +114,18 @@ function extendPartialMapFromJson(basetile, jsonstring, maxlevel)
         monsterlist.push(newMonster);
     }
 
-    if (!basetile) {    // Start of game (initial position)
-        basetile = recursiveCreateTiles(0, maxlevel, null, tiles_from_json, monsterlist);
+    if (initial) {    // Start of game (initial position)
+        var newbasetile = recursiveCreateTiles(0, maxlevel, null, tiles_from_json, monsterlist);
+
+        // Clone the new info into the basetile (we cant return the basetile since
+        // this function is called from async AJAX handler)
+        for(var key in newbasetile) {
+            basetile[key] = newbasetile[key];
+        }
     }
     else {      // Player has already been moving in map
         recursiveCreateTiles(1, maxlevel, basetile, tiles_from_json, monsterlist);
     }
-
-    return basetile;
 }
 
 function recursiveCreateTiles(currlevel, maxlevel, basetile, tilelist, monsterlist)
@@ -184,7 +228,7 @@ function findTileWithId(tilelist, id)
     }
 
     if (i == tilelist.length) {      // Not found !
-        console.error("Tile missing in response");
+        console.error("Tile missing in response with id " + id);
         return null;
     }
 
@@ -213,6 +257,16 @@ function Player(id, name)
     this.id = id;
     this.name = name;
     this.currentPosition = null;        // Tile where player currently resides
+}
+
+Player.prototype.initialize = function() {
+    // Here we should load the player stats from the server
+    // health, items, start location, ...
+
+    // Partial map of start location should be loaded
+    var locationid = 1;     // TODO: This should be retrieved from server
+    this.currentPosition = new Tile(locationid, null, null, null, null, null);
+    getPartialMapFromServer(this.currentPosition, 2, true);
 }
 
 Player.prototype.toString = function() {
@@ -275,51 +329,39 @@ Player.prototype.go = function(to) {
     }
 
     if (to == 'north') {
-        if (this.currentPosition.north_id != null) {
-            if (this.currentPosition.north != null) {   // Next position already in memory
-                this.currentPosition = this.currentPosition.north;
-            }
-            else {  // We need to load the next part of the map first
-                var partialmap = requestMapInformation(this.currentPosition.north_id, 2);
-                extendPartialMapFromJson(this.currentPosition, partialmap, 2);
-                this.currentPosition = this.currentPosition.north;      // Move player
-            }
+        if (this.currentPosition.north_id != null && this.currentPosition.north != null) {
+            // Move player to new location
+            this.currentPosition = this.currentPosition.north;
+
+            // Now we need to get all surrounding tiles of current tile
+            getPartialMapFromServer(this.currentPosition, 2, false);
         }
     }
     else if (to == 'east') {
-        if (this.currentPosition.east_id != null) {
-            if (this.currentPosition.east != null) {   // Next position already in memory
-                this.currentPosition = this.currentPosition.east;
-            }
-            else {  // We need to load the next part of the map first
-                var partialmap = requestMapInformation(this.currentPosition.east_id, 2);
-                extendPartialMapFromJson(this.currentPosition, partialmap, 2);
-                this.currentPosition = this.currentPosition.east;      // Move player
-            }
+        if (this.currentPosition.east_id != null && this.currentPosition.east != null) {
+            // Move player to new location
+            this.currentPosition = this.currentPosition.east;
+
+            // Now we need to get all surrounding tiles of current tile
+            getPartialMapFromServer(this.currentPosition, 2, false);
         }
     }
     else if (to == 'south') {
-        if (this.currentPosition.south_id != null) {
-            if (this.currentPosition.south != null) {   // Next position already in memory
-                this.currentPosition = this.currentPosition.south;
-            }
-            else {  // We need to load the next part of the map first
-                var partialmap = requestMapInformation(this.currentPosition.south_id, 2);
-                extendPartialMapFromJson(this.currentPosition, partialmap, 2);
-                this.currentPosition = this.currentPosition.south;      // Move player
-            }
+        if (this.currentPosition.south_id != null && this.currentPosition.south != null) {
+            // Move player to new location
+            this.currentPosition = this.currentPosition.south;
+
+            // Now we need to get all surrounding tiles of current tile
+            getPartialMapFromServer(this.currentPosition, 2, false);
         }
     }
     else if (to == 'west') {
-        if (this.currentPosition.west_id != null) {
-            if (this.currentPosition.west != null) {   // Next position already in memory
-                this.currentPosition = this.currentPosition.west;
-            }
-            else {  // We need to load the next part of the map first
-                var partialmap = requestMapInformation(this.currentPosition.west_id, 2);
-                extendPartialMapFromJson(this.currentPosition, partialmap, 2);
-                this.currentPosition = this.currentPosition.west;      // Move player
-            }
+        if (this.currentPosition.west_id != null && this.currentPosition.west != null) {
+            // Move player to new location
+            this.currentPosition = this.currentPosition.west;
+
+            // Now we need to get all surrounding tiles of current tile
+            getPartialMapFromServer(this.currentPosition, 2, false);
         }
     }
 
